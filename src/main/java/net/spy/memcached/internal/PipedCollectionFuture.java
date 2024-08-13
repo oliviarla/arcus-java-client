@@ -1,10 +1,8 @@
 package net.spy.memcached.internal;
 
-import java.util.Collection;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -18,7 +16,7 @@ import net.spy.memcached.ops.OperationState;
 
 public class PipedCollectionFuture<K, V>
         extends CollectionFuture<Map<K, V>> {
-  private final ConcurrentLinkedQueue<Operation> ops = new ConcurrentLinkedQueue<>();
+  private final ConcurrentLinkedDeque<Operation> ops = new ConcurrentLinkedDeque<>();
   private final AtomicReference<CollectionOperationStatus> operationStatus
           = new AtomicReference<>(null);
 
@@ -31,31 +29,30 @@ public class PipedCollectionFuture<K, V>
 
   @Override
   public boolean cancel(boolean ign) {
-    boolean rv = false;
-    for (Operation op : ops) {
-      rv |= op.cancel("by application.");
-    }
-    return rv;
-  }
-
-  @Override
-  public boolean isCancelled() {
-    for (Operation op : ops) {
-      if (op.isCancelled()) {
-        return true;
-      }
+    Operation lastOp = ops.getLast();
+    if (lastOp != null) {
+      return lastOp.cancel("by application.");
     }
     return false;
   }
 
   @Override
-  public boolean isDone() {
-    for (Operation op : ops) {
-      if (!(op.getState() == OperationState.COMPLETE || op.isCancelled())) {
-        return false;
-      }
+  public boolean isCancelled() {
+    Operation lastOp = ops.getLast();
+    if (lastOp != null) {
+      return lastOp.isCancelled();
     }
-    return true;
+    return false;
+  }
+
+  public boolean hasErrored() {
+    Operation lastOp = ops.getLast();
+    return lastOp != null && lastOp.hasErrored();
+  }
+
+  @Override
+  public boolean isDone() {
+    return latch.getCount() == 0;
   }
 
   @Override
@@ -63,35 +60,29 @@ public class PipedCollectionFuture<K, V>
           throws InterruptedException, TimeoutException, ExecutionException {
 
     long beforeAwait = System.currentTimeMillis();
+    Operation lastOp = ops.getLast();
     if (!latch.await(duration, unit)) {
-      Collection<Operation> timedOutOps = new HashSet<>();
-      for (Operation op : ops) {
-        if (op.getState() != OperationState.COMPLETE) {
-          timedOutOps.add(op);
-        } else {
+      if (lastOp.getState() != OperationState.COMPLETE) {
+        MemcachedConnection.opTimedOut(lastOp);
+
+        long elapsed = System.currentTimeMillis() - beforeAwait;
+        throw new CheckedOperationTimeoutException(duration, unit, elapsed, lastOp);
+      } else {
+        for (Operation op : ops) {
           MemcachedConnection.opSucceeded(op);
         }
       }
-      if (!timedOutOps.isEmpty()) {
-        // set timeout only once for piped ops requested to single node.
-        MemcachedConnection.opTimedOut(timedOutOps.iterator().next());
-
-        long elapsed = System.currentTimeMillis() - beforeAwait;
-        throw new CheckedOperationTimeoutException(duration, unit, elapsed, timedOutOps);
-      }
     } else {
       // continuous timeout counter will be reset only once in pipe
-      MemcachedConnection.opSucceeded(ops.iterator().next());
+      MemcachedConnection.opSucceeded(lastOp);
     }
 
-    for (Operation op : ops) {
-      if (op != null && op.hasErrored()) {
-        throw new ExecutionException(op.getException());
-      }
+    if (lastOp != null && lastOp.hasErrored()) {
+      throw new ExecutionException(lastOp.getException());
+    }
 
-      if (op != null && op.isCancelled()) {
-        throw new ExecutionException(new RuntimeException(op.getCancelCause()));
-      }
+    if (lastOp != null && lastOp.isCancelled()) {
+      throw new ExecutionException(new RuntimeException(lastOp.getCancelCause()));
     }
 
     return failedResult;

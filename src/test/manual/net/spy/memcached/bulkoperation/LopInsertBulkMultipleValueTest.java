@@ -114,7 +114,7 @@ public class LopInsertBulkMultipleValueTest extends BaseIntegrationTest {
 
       Map<Integer, CollectionOperationStatus> map = future.get(1000L,
               TimeUnit.MILLISECONDS);
-      assertEquals(valueCount, map.size());
+      assertEquals(mc.getMaxPipedItemCount(), map.size());
 
     } catch (Exception e) {
       e.printStackTrace();
