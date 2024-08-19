@@ -16,6 +16,7 @@
  */
 package net.spy.memcached.bulkoperation;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -23,21 +24,24 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import net.spy.memcached.ArcusClient;
 import net.spy.memcached.collection.BaseIntegrationTest;
 import net.spy.memcached.collection.CollectionAttributes;
+import net.spy.memcached.collection.CollectionResponse;
 import net.spy.memcached.ops.CollectionOperationStatus;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-class LopInsertBulkMultipleValueTest extends BaseIntegrationTest {
+class LopPipedInsertBulkMultipleValueTest extends BaseIntegrationTest {
 
-  private String key = "LopInsertBulkMultipleValueTest";
+  private String key = "LopPipedInsertBulkMultipleValueTest";
 
   @AfterEach
   @Override
@@ -50,10 +54,10 @@ class LopInsertBulkMultipleValueTest extends BaseIntegrationTest {
   void testInsertAndGet() {
     String value = "MyValue";
 
-    int valueCount = 500;
-    Object[] valueList = new Object[valueCount];
-    for (int i = 0; i < valueList.length; i++) {
-      valueList[i] = "MyValue";
+    int valueCount = 510;
+    List<Object> valueList = new ArrayList<>(valueCount);
+    for (int i = 0; i < valueCount; i++) {
+      valueList.add("MyValue" + i);
     }
 
     try {
@@ -62,8 +66,7 @@ class LopInsertBulkMultipleValueTest extends BaseIntegrationTest {
 
       // SET
       Future<Map<Integer, CollectionOperationStatus>> future = mc
-              .asyncLopPipedInsertBulk(key, 0, Arrays.asList(valueList),
-                      new CollectionAttributes());
+              .asyncLopPipedInsertBulk(key, 0, valueList, new CollectionAttributes());
       try {
         Map<Integer, CollectionOperationStatus> errorList = future.get(
                 20000L, TimeUnit.MILLISECONDS);
@@ -76,27 +79,27 @@ class LopInsertBulkMultipleValueTest extends BaseIntegrationTest {
 
       // GET
       int errorCount = 0;
-      List<Object> list = null;
+      List<Object> resultList = null;
       Future<List<Object>> f = mc.asyncLopGet(key, 0, valueCount, false,
               false);
       try {
-        list = f.get();
+        resultList = f.get();
       } catch (Exception e) {
         f.cancel(true);
         e.printStackTrace();
         fail(e.getMessage());
       }
 
-      assertNotNull(list, "List is null.");
-      assertTrue(!list.isEmpty(), "Cached list is empty.");
-      assertEquals(valueCount, list.size());
+      assertNotNull(resultList);
+      assertFalse(resultList.isEmpty(), "Cached list is empty.");
+      assertEquals(valueCount, resultList.size());
 
-      for (Object o : list) {
-        if (!value.equals(o)) {
+      for (int i = 0; i < resultList.size(); i++) {
+        if (!resultList.get(i).equals(valueList.get(i))) {
           errorCount++;
         }
       }
-      assertEquals(valueCount, list.size());
+      assertEquals(valueCount, resultList.size());
       assertEquals(0, errorCount);
 
       // REMOVE
@@ -111,9 +114,7 @@ class LopInsertBulkMultipleValueTest extends BaseIntegrationTest {
   void testErrorCount() {
     int valueCount = 1200;
     Object[] valueList = new Object[valueCount];
-    for (int i = 0; i < valueList.length; i++) {
-      valueList[i] = "MyValue";
-    }
+    Arrays.fill(valueList, "MyValue");
 
     try {
       // SET
@@ -123,8 +124,11 @@ class LopInsertBulkMultipleValueTest extends BaseIntegrationTest {
 
       Map<Integer, CollectionOperationStatus> map = future.get(1000L,
               TimeUnit.MILLISECONDS);
-      assertEquals(valueCount, map.size());
-
+      assertEquals(ArcusClient.MAX_PIPED_ITEM_COUNT + 1, map.size());
+      assertEquals(map.get(ArcusClient.MAX_PIPED_ITEM_COUNT - 1).getResponse(),
+              CollectionResponse.NOT_FOUND);
+      assertEquals(map.get(ArcusClient.MAX_PIPED_ITEM_COUNT).getResponse(),
+              CollectionResponse.CANCELED);
     } catch (Exception e) {
       e.printStackTrace();
       fail();

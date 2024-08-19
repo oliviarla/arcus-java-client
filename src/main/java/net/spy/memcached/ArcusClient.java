@@ -26,6 +26,7 @@ import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -38,6 +39,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntFunction;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
@@ -1852,11 +1854,16 @@ public class ArcusClient extends FrontCacheMemcachedClient implements ArcusClien
       insertList.add(new ListPipedInsert<>(key, index, valueList, attributesForCreate, tc));
     } else {
       PartitionedList<T> list = new PartitionedList<>(valueList, MAX_PIPED_ITEM_COUNT);
+
       for (List<T> elementList : list) {
         insertList.add(new ListPipedInsert<>(key, index, elementList, attributesForCreate, tc));
+        if (index >= 0) {
+          index += elementList.size();
+        }
       }
     }
-    return asyncCollectionPipedInsert(key, insertList);
+
+    return syncCollectionPipedInsert(key, Collections.unmodifiableList(insertList));
   }
 
   @Override
@@ -3111,6 +3118,74 @@ public class ArcusClient extends FrontCacheMemcachedClient implements ArcusClien
       rv.addOperation(op);
       addOp(key, op);
     }
+    return rv;
+  }
+
+  /**
+   * Pipe insert method for collection items.
+   *
+   * @param key arcus cache key
+   * @param insertList must not be empty.
+   * @return future holding the map of element index and the reason why insert operation failed
+   */
+  private <T> CollectionFuture<Map<Integer, CollectionOperationStatus>> syncCollectionPipedInsert(
+          final String key, final List<CollectionPipedInsert<T>> insertList) {
+    final CountDownLatch latch = new CountDownLatch(1);
+    final PipedCollectionFuture<Integer, CollectionOperationStatus> rv =
+            new PipedCollectionFuture<>(latch, operationTimeout);
+
+    final List<Operation> ops = new ArrayList<>(insertList.size());
+    IntFunction<OperationCallback> makeCallback = opIdx -> new CollectionPipedInsertOperation.Callback() {
+      // each result status
+      public void receivedStatus(OperationStatus status) {
+        CollectionOperationStatus cstatus;
+
+        if (status instanceof CollectionOperationStatus) {
+          cstatus = (CollectionOperationStatus) status;
+        } else {
+          getLogger().warn("Unhandled state: " + status);
+          cstatus = new CollectionOperationStatus(status);
+        }
+        rv.setOperationStatus(cstatus);
+      }
+
+      // complete
+      public void complete() {
+        if (opIdx == insertList.size() - 1 || rv.hasErrored() || rv.isCancelled()) {
+          latch.countDown();
+        } else if (!rv.getOperationStatus().isSuccess()) {
+          // If this operation failed, remaining subsequent operation
+          // should not be added and should be marked as cancelled.
+          rv.addEachResult((opIdx + 1) * MAX_PIPED_ITEM_COUNT,
+                  new CollectionOperationStatus(false, "CANCELED", CollectionResponse.CANCELED));
+          latch.countDown();
+        } else {
+          // add next operation if this is not last op
+          Operation nextOp = ops.get(opIdx + 1);
+          rv.addOperation(nextOp);
+          addOp(key, nextOp);
+        }
+      }
+
+      // got status
+      public void gotStatus(Integer index, OperationStatus status) {
+        if (status instanceof CollectionOperationStatus) {
+          rv.addEachResult(index + (opIdx * MAX_PIPED_ITEM_COUNT),
+                  (CollectionOperationStatus) status);
+        } else {
+          rv.addEachResult(index + (opIdx * MAX_PIPED_ITEM_COUNT),
+                  new CollectionOperationStatus(status));
+        }
+      }
+    };
+
+    for (int i = 0; i < insertList.size(); i++) {
+      final CollectionPipedInsert<T> insert = insertList.get(i);
+      Operation op = opFact.collectionPipedInsert(key, insert, makeCallback.apply(i));
+      ops.add(op);
+    }
+    rv.addOperation(ops.get(0));
+    addOp(key, ops.get(0));
     return rv;
   }
 

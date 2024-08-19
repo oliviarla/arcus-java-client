@@ -1,7 +1,7 @@
 package net.spy.memcached.internal;
 
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -11,13 +11,15 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import net.spy.memcached.MemcachedConnection;
+import net.spy.memcached.collection.CollectionResponse;
 import net.spy.memcached.ops.CollectionOperationStatus;
 import net.spy.memcached.ops.Operation;
 import net.spy.memcached.ops.OperationState;
 
 public class PipedCollectionFuture<K, V>
         extends CollectionFuture<Map<K, V>> {
-  private final Collection<Operation> ops = new ArrayList<>();
+  // operations that are completed or in progress
+  private final List<Operation> ops = new ArrayList<>();
   private final AtomicReference<CollectionOperationStatus> operationStatus
           = new AtomicReference<>(null);
 
@@ -30,67 +32,60 @@ public class PipedCollectionFuture<K, V>
 
   @Override
   public boolean cancel(boolean ign) {
-    boolean rv = false;
-    for (Operation op : ops) {
-      rv |= op.cancel("by application.");
-    }
-    return rv;
+    return ops.get(ops.size() - 1).cancel("by application.");
   }
 
+  /**
+   * if previous op is cancelled, then next ops are not added to the opQueue.
+   * So we only need to check current op.
+   *
+   * @return true if operation is cancelled.
+   */
   @Override
   public boolean isCancelled() {
-    for (Operation op : ops) {
-      if (op.isCancelled()) {
-        return true;
-      }
-    }
-    return false;
+    return operationStatus.get().getResponse() == CollectionResponse.CANCELED;
+  }
+
+  /**
+   * if previous op threw exception, then next ops are not added to the opQueue.
+   * So we only need to check current op.
+   *
+   * @return true if operation has errored by exception.
+   */
+  public boolean hasErrored() {
+    return ops.get(ops.size() - 1).hasErrored();
   }
 
   @Override
   public boolean isDone() {
-    for (Operation op : ops) {
-      if (!(op.getState() == OperationState.COMPLETE || op.isCancelled())) {
-        return false;
-      }
-    }
-    return true;
+    return latch.getCount() == 0;
   }
 
   @Override
   public Map<K, V> get(long duration, TimeUnit unit)
           throws InterruptedException, TimeoutException, ExecutionException {
-
     long beforeAwait = System.currentTimeMillis();
+    Operation lastOp;
     if (!latch.await(duration, unit)) {
-      Collection<Operation> timedOutOps = new ArrayList<>();
-      for (Operation op : ops) {
-        if (op.getState() != OperationState.COMPLETE) {
-          timedOutOps.add(op);
-        } else {
-          MemcachedConnection.opSucceeded(op);
-        }
-      }
-      if (!timedOutOps.isEmpty()) {
-        // set timeout only once for piped ops requested to single node.
-        MemcachedConnection.opTimedOut(timedOutOps.iterator().next());
+      lastOp = ops.get(ops.size() - 1);
+      if (lastOp.getState() != OperationState.COMPLETE) {
+        MemcachedConnection.opTimedOut(lastOp);
 
         long elapsed = System.currentTimeMillis() - beforeAwait;
-        throw new CheckedOperationTimeoutException(duration, unit, elapsed, timedOutOps);
+        throw new CheckedOperationTimeoutException(duration, unit, elapsed, lastOp);
       }
     } else {
       // continuous timeout counter will be reset only once in pipe
-      MemcachedConnection.opSucceeded(ops.iterator().next());
+      lastOp = ops.get(ops.size() - 1);
+      MemcachedConnection.opSucceeded(lastOp);
     }
 
-    for (Operation op : ops) {
-      if (op != null && op.hasErrored()) {
-        throw new ExecutionException(op.getException());
-      }
+    if (lastOp != null && lastOp.hasErrored()) {
+      throw new ExecutionException(lastOp.getException());
+    }
 
-      if (op != null && op.isCancelled()) {
-        throw new ExecutionException(new RuntimeException(op.getCancelCause()));
-      }
+    if (lastOp != null && lastOp.isCancelled()) {
+      throw new ExecutionException(new RuntimeException(lastOp.getCancelCause()));
     }
 
     return failedResult;

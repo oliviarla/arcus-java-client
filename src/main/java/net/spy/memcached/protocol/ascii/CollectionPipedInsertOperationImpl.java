@@ -141,7 +141,7 @@ public final class CollectionPipedInsertOperationImpl extends OperationImpl
       <status of the last pipelined command>\r\n
       END|PIPE_ERROR <error_string>\r\n
     */
-    if (line.startsWith("END") || line.startsWith("PIPE_ERROR ")) {
+    if (line.startsWith("END")) {
       /* ENABLE_MIGRATION if */
       if (needRedirect()) {
         transitionState(OperationState.REDIRECT);
@@ -149,6 +149,10 @@ public final class CollectionPipedInsertOperationImpl extends OperationImpl
       }
       /* ENABLE_MIGRATION end */
       cb.receivedStatus((successAll) ? END : FAILED_END);
+      transitionState(OperationState.COMPLETE);
+    } else if (line.startsWith("PIPE_ERROR ")) {
+      // command flow / memory flow
+      cb.receivedStatus(FAILED_END);
       transitionState(OperationState.COMPLETE);
     } else if (line.startsWith("RESPONSE ")) {
       getLogger().debug("Got line %s", line);
