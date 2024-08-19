@@ -332,6 +332,10 @@ asyncLopPipedInsertBulk(String key, int index, List<Object> valueList, Collectio
   - null: element 삽입하지 않는다. 
   - attributes: 주어진 attributes를 가진 empty list item 생성 후에 element 삽입한다.
 
+만약 삽입 요청 중 일부가 실패하면 filled map을 반환한다. 마지막 entry의 value에
+`CollectionResponse가 CANCELED인 CollectionOperationStatus`가 존재하는 경우, 이전 오류로 인해
+해당 요청 이후의 모든 요청이 취소되었다는 것을 의미한다.  
+
 둘째, 여러 key들이 가리키는 list들에 각각 동일한 하나의 element를 삽입하는 함수이다.
 
 ```java
