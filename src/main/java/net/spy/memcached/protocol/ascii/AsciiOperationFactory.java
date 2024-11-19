@@ -18,6 +18,7 @@ package net.spy.memcached.protocol.ascii;
 
 import java.util.Collection;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import javax.security.auth.callback.CallbackHandler;
 
@@ -71,7 +72,9 @@ import net.spy.memcached.ops.GetsOperation;
 import net.spy.memcached.ops.Mutator;
 import net.spy.memcached.ops.MutatorOperation;
 import net.spy.memcached.ops.NoopOperation;
+import net.spy.memcached.ops.Operation;
 import net.spy.memcached.ops.OperationCallback;
+import net.spy.memcached.ops.OperationStatus;
 import net.spy.memcached.ops.SASLAuthOperation;
 import net.spy.memcached.ops.SASLMechsOperation;
 import net.spy.memcached.ops.SASLStepOperation;
@@ -130,6 +133,24 @@ public class AsciiOperationFactory extends BaseOperationFactory {
   public StoreOperation store(StoreType storeType, String key, int flags,
                               int exp, byte[] data, OperationCallback cb) {
     return new StoreOperationImpl(storeType, key, flags, exp, data, cb);
+  }
+
+  @Override
+  public StoreOperation store(StoreType storeType, String key, int flags, int exp, byte[] data,
+                              Consumer<OperationStatus> receiveStatus, Runnable complete) {
+    return new StoreOperationImpl(storeType, key, flags, exp, data,
+            new OperationCallback() {
+              @Override
+              public void receivedStatus(OperationStatus status) {
+                receiveStatus.accept(status);
+              }
+
+              @Override
+              public void complete() {
+                complete.run();
+              }
+            }
+    );
   }
 
   public VersionOperation version(OperationCallback cb) {

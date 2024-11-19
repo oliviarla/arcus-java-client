@@ -3714,4 +3714,8 @@ public class ArcusClient extends FrontCacheMemcachedClient implements ArcusClien
     }
     return VERSION;
   }
+
+  public OperationFactory getOpFactory() {
+    return this.opFact;
+  }
 }

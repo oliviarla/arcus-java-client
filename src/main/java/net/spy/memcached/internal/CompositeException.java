@@ -11,7 +11,7 @@ public class CompositeException extends ExecutionException {
   private static final long serialVersionUID = -599478797582490012L;
   private final ArrayList<Exception> exceptions = new ArrayList<>();
 
-  CompositeException(List<Exception> exceptions) {
+  public CompositeException(List<Exception> exceptions) {
     super(ExceptionMessageFactory.createCompositeMessage(exceptions));
     this.exceptions.addAll(exceptions);
   }

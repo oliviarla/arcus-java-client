@@ -19,6 +19,7 @@ package net.spy.memcached;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import javax.security.auth.callback.CallbackHandler;
 
@@ -75,6 +76,7 @@ import net.spy.memcached.ops.MutatorOperation;
 import net.spy.memcached.ops.NoopOperation;
 import net.spy.memcached.ops.Operation;
 import net.spy.memcached.ops.OperationCallback;
+import net.spy.memcached.ops.OperationStatus;
 import net.spy.memcached.ops.SASLAuthOperation;
 import net.spy.memcached.ops.SASLMechsOperation;
 import net.spy.memcached.ops.SASLStepOperation;
@@ -207,6 +209,9 @@ public interface OperationFactory {
   StoreOperation store(StoreType storeType, String key, int flags, int exp,
                        byte[] data, OperationCallback cb);
 
+
+  StoreOperation store(StoreType storeType, String key, int flags, int exp, byte[] data,
+                       Consumer<OperationStatus> receiveStatus, Runnable complete);
   /**
    * Get a concatenation operation.
    *
