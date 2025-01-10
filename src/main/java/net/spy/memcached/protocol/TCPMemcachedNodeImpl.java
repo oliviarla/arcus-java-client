@@ -40,6 +40,7 @@ import net.spy.memcached.ArcusReplNodeAddress;
 import net.spy.memcached.MemcachedNode;
 import net.spy.memcached.MemcachedReplicaGroup;
 import net.spy.memcached.compat.SpyObject;
+import net.spy.memcached.ops.GetOperation;
 import net.spy.memcached.ops.Operation;
 import net.spy.memcached.ops.OperationState;
 
@@ -265,7 +266,7 @@ public abstract class TCPMemcachedNodeImpl extends SpyObject
           transitionWriteItem();
 
           preparePending();
-          if (shouldOptimize) {
+          if (shouldOptimize && o instanceof GetOperation) {
             optimize();
           }
 
