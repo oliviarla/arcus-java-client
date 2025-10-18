@@ -45,7 +45,7 @@ jobs:
           git clone https://github.com/naver/arcus.git $HOME/arcus
 
           # build server
-          cd ~/arcus && docker compose up -d
+          cd ~/arcus && docker compose up --verbose -d
 
       - name: Print Docker Logs On Failure
         if: failure()
