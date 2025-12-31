@@ -888,7 +888,7 @@ public class AsyncArcusCommands<T> implements AsyncArcusCommandsIF<T> {
         }
       }
       return SMGetElements.mergeSMGetElements(results, from.compareTo(to) <= 0, unique,
-          args.getCount());
+          args.getCount(), args.getMergeStrategy());
     });
   }
 

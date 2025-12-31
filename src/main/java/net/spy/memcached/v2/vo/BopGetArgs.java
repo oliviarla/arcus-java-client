@@ -11,14 +11,17 @@ public final class BopGetArgs {
   private final int count;
   private final boolean withDelete;
   private final boolean dropIfEmpty;
+  private final SMGetMergeStrategy mergeStrategy;
 
   private BopGetArgs(ElementFlagFilter eFlagFilter, int offset, int count,
-                     boolean withDelete, boolean dropIfEmpty) {
+                     boolean withDelete, boolean dropIfEmpty,
+                     SMGetMergeStrategy mergeStrategy) {
     this.eFlagFilter = eFlagFilter;
     this.offset = offset;
     this.count = count;
     this.withDelete = withDelete;
     this.dropIfEmpty = dropIfEmpty;
+    this.mergeStrategy = mergeStrategy;
   }
 
   public ElementFlagFilter getElementFlagFilter() {
@@ -41,12 +44,17 @@ public final class BopGetArgs {
     return dropIfEmpty;
   }
 
+  public SMGetMergeStrategy getMergeStrategy() {
+    return mergeStrategy;
+  }
+
   public static final class Builder {
     private ElementFlagFilter eFlagFilter = null;
     private int offset = 0;
     private int count = 50;
     private boolean withDelete = false;
     private boolean dropIfEmpty = false;
+    private SMGetMergeStrategy mergeStrategy = SMGetMergeStrategy.TIMSORT;
 
     public Builder eFlagFilter(ElementFlagFilter eFlagFilter) {
       this.eFlagFilter = eFlagFilter;
@@ -93,8 +101,20 @@ public final class BopGetArgs {
       return this;
     }
 
+    /**
+     * Set the merge strategy for bopSortMergeGet method.
+     * Default is TIMSORT.
+     *
+     * @param mergeStrategy the merge strategy to use
+     */
+    public Builder mergeStrategy(SMGetMergeStrategy mergeStrategy) {
+      this.mergeStrategy = mergeStrategy;
+      return this;
+    }
+
     public BopGetArgs build() {
-      return new BopGetArgs(eFlagFilter, offset, count, withDelete, dropIfEmpty);
+      return new BopGetArgs(eFlagFilter, offset, count, withDelete, dropIfEmpty,
+          mergeStrategy);
     }
   }
 }
