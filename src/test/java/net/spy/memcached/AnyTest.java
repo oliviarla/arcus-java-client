@@ -37,8 +37,6 @@ public class AnyTest {
     @BeforeClass
     public static void setUpClass() {
         new Random().nextBytes(VALUE);
-        mc = ArcusClient.createArcusClientPool("localhost:2181", "test",
-                new ConnectionFactoryBuilder(), 1);
     }
 
     @AfterClass
@@ -56,7 +54,9 @@ public class AnyTest {
     }
 
     @Test
-    public void testBopPipedInsertBulk500x20ElementsLatency() throws Exception {
+    public void testBopPipedInsertBulk500x20ElementsLatencyPool4() throws Exception {
+        mc = ArcusClient.createArcusClientPool("localhost:2181", "test",
+                new ConnectionFactoryBuilder(), 4);
         final List<Map<Long, Object>> batches = new ArrayList<Map<Long, Object>>();
         for (int b = 0; b < ELEMENT_COUNT / BATCH_SIZE; b++) {
             Map<Long, Object> elements = new TreeMap<Long, Object>();
@@ -66,7 +66,7 @@ public class AnyTest {
             batches.add(elements);
         }
 
-        benchmark("bop piped insert bulk (500 x 20 requests)", new Scenario() {
+        benchmark("bop piped insert bulk (500 x 20 requests, pool 4)", new Scenario() {
             private final List<CollectionFuture<Map<Integer, CollectionOperationStatus>>> futures =
                     new ArrayList<CollectionFuture<Map<Integer, CollectionOperationStatus>>>();
 
@@ -90,23 +90,73 @@ public class AnyTest {
     }
 
     @Test
-    public void testBopPipedInsertBulk10000ElementsLatency() throws Exception {
-        final Map<Long, Object> elements = new TreeMap<Long, Object>();
-        for (long i = 0; i < ELEMENT_COUNT; i++) {
-            elements.put(i, VALUE);
+    public void testBopPipedInsertBulk500x20ElementsLatencyPool8() throws Exception {
+        mc = ArcusClient.createArcusClientPool("localhost:2181", "test",
+                new ConnectionFactoryBuilder(), 8);
+        final List<Map<Long, Object>> batches = new ArrayList<Map<Long, Object>>();
+        for (int b = 0; b < ELEMENT_COUNT / BATCH_SIZE; b++) {
+            Map<Long, Object> elements = new TreeMap<Long, Object>();
+            for (long i = (long) b * BATCH_SIZE; i < (long) (b + 1) * BATCH_SIZE; i++) {
+                elements.put(i, VALUE);
+            }
+            batches.add(elements);
         }
 
-        benchmark("bop piped insert bulk (1 x 10000 request)", new Scenario() {
-            private Map<Integer, CollectionOperationStatus> failed;
+        benchmark("bop piped insert bulk (500 x 20 requests, pool 8)", new Scenario() {
+            private final List<CollectionFuture<Map<Integer, CollectionOperationStatus>>> futures =
+                    new ArrayList<CollectionFuture<Map<Integer, CollectionOperationStatus>>>();
 
             public void run() throws Exception {
-                // the client splits this into pipes of 500 elements internally
-                failed = mc.asyncBopPipedInsertBulk(KEY, elements, ATTRS)
-                        .get(10000, TimeUnit.MILLISECONDS);
+                futures.clear();
+                for (Map<Long, Object> batch : batches) {
+                    futures.add(mc.asyncBopPipedInsertBulk(KEY, batch, ATTRS));
+                }
+                for (CollectionFuture<Map<Integer, CollectionOperationStatus>> future : futures) {
+                    future.get(10000, TimeUnit.MILLISECONDS);
+                }
             }
 
-            public void verify() {
-                assertTrue("failed elements: " + failed, failed.isEmpty());
+            public void verify() throws Exception {
+                for (CollectionFuture<Map<Integer, CollectionOperationStatus>> future : futures) {
+                    Map<Integer, CollectionOperationStatus> failed = future.get();
+                    assertTrue("failed elements: " + failed, failed.isEmpty());
+                }
+            }
+        });
+    }
+
+    @Test
+    public void testBopPipedInsertBulk500x20ElementsLatencyPool16() throws Exception {
+        mc = ArcusClient.createArcusClientPool("localhost:2181", "test",
+                new ConnectionFactoryBuilder(), 16);
+        final List<Map<Long, Object>> batches = new ArrayList<Map<Long, Object>>();
+        for (int b = 0; b < ELEMENT_COUNT / BATCH_SIZE; b++) {
+            Map<Long, Object> elements = new TreeMap<Long, Object>();
+            for (long i = (long) b * BATCH_SIZE; i < (long) (b + 1) * BATCH_SIZE; i++) {
+                elements.put(i, VALUE);
+            }
+            batches.add(elements);
+        }
+
+        benchmark("bop piped insert bulk (500 x 20 requests, pool 16)", new Scenario() {
+            private final List<CollectionFuture<Map<Integer, CollectionOperationStatus>>> futures =
+                    new ArrayList<CollectionFuture<Map<Integer, CollectionOperationStatus>>>();
+
+            public void run() throws Exception {
+                futures.clear();
+                for (Map<Long, Object> batch : batches) {
+                    futures.add(mc.asyncBopPipedInsertBulk(KEY, batch, ATTRS));
+                }
+                for (CollectionFuture<Map<Integer, CollectionOperationStatus>> future : futures) {
+                    future.get(10000, TimeUnit.MILLISECONDS);
+                }
+            }
+
+            public void verify() throws Exception {
+                for (CollectionFuture<Map<Integer, CollectionOperationStatus>> future : futures) {
+                    Map<Integer, CollectionOperationStatus> failed = future.get();
+                    assertTrue("failed elements: " + failed, failed.isEmpty());
+                }
             }
         });
     }
